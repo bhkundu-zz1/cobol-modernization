@@ -2,7 +2,13 @@
 
 This document describes the architecture for the COBOL/JCL migration harness: an application that uses LLM agents to read COBOL and JCL source, reason about it, and produce research, recommendations, epics, and stories to guide clients' migration efforts. It is the authoritative design reference required by this repo's `CLAUDE.md` and must be kept current before any GitHub publish.
 
-Status: architecture-only. No application source exists yet in this repository.
+Status: implemented per the pipeline and component design below, with the
+scope noted in `docs/deferred_scope.md` (JCL structural analysis and
+`qa-drilldown` are written but not wired; guardrails and Langfuse are local
+in-process stand-ins rather than the containerized services described here;
+mainframe connectivity has a real, tested seam but only a mock adapter — see
+the README's Forward Deployed Engineer section for what a real SCM
+connector requires).
 
 ## 0. Key decisions and open risks
 
