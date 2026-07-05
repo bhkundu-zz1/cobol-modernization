@@ -1,0 +1,344 @@
+version: "3.9"
+
+# =============================================================================
+# COBOL/JCL Migration Harness — local dev topology
+# =============================================================================
+# All config values come from .env (docker-compose auto-loads a `.env` file
+# in this directory; see .env.example for the documented full set).
+#
+# Phase 1 note: every service below has a real Dockerfile placeholder so this
+# file parses and the topology is real, but most application code does not
+# exist yet (STUB services return a placeholder response; REAL services will
+# get real Dockerfiles/entrypoints in later phases). `docker-compose config`
+# is expected to parse cleanly; `docker-compose up` for the app-code services
+# is not expected to be fully functional until their phase lands.
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Data stores
+  # ---------------------------------------------------------------------------
+  couchdb:
+    image: couchdb:3.3
+    container_name: cobol-modernization-couchdb
+    ports:
+      - "5984:5984"
+    environment:
+      COUCHDB_USER: ${COUCHDB_USER}
+      COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}
+    volumes:
+      - couchdb-data:/opt/couchdb/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5984/_up"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Platform services
+  # ---------------------------------------------------------------------------
+  mcp-gateway:
+    build:
+      context: .
+      dockerfile: mcp_gateway/Dockerfile
+    container_name: mcp-gateway
+    env_file: .env
+    environment:
+      COUCHDB_URL: http://couchdb:5984
+      REDIS_HOST: redis
+    ports:
+      - "${MCP_GATEWAY_PORT}:${MCP_GATEWAY_PORT}"
+    depends_on:
+      - couchdb
+      - redis
+
+  # Real, runnable OpenAI-chat-completions-compatible mock LLM server so the
+  # vertical slice needs zero commercial/OSS API keys to demo end-to-end.
+  # litellm-proxy's "cobol-analysis-dev" model_list entry points here.
+  mock-llm:
+    build:
+      context: .
+      dockerfile: infra/mock_llm/Dockerfile
+    container_name: mock-llm
+    environment:
+      MOCK_LLM_PORT: "9000"
+    ports:
+      - "9000:9000"
+
+  litellm-proxy:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: litellm-proxy
+    env_file: .env
+    volumes:
+      - ./infra/litellm/litellm_config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports:
+      - "4000:4000"
+    depends_on:
+      - mock-llm
+
+  # ---------------------------------------------------------------------------
+  # Agent orchestration — Celery workers, one pool per queue
+  # ---------------------------------------------------------------------------
+  celery-worker-ingestion:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    container_name: celery-worker-ingestion
+    env_file: .env
+    environment:
+      COUCHDB_URL: http://couchdb:5984
+      REDIS_HOST: redis
+      MCP_GATEWAY_URL: http://mcp-gateway:${MCP_GATEWAY_PORT}
+      LITELLM_PROXY_URL: http://litellm-proxy:4000
+    command: ["celery", "-A", "orchestrator.celery_app", "worker", "-Q", "${CELERY_QUEUE_INGESTION}", "--loglevel=INFO"]
+    depends_on:
+      - redis
+      - couchdb
+      - mcp-gateway
+
+  celery-worker-structural:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    container_name: celery-worker-structural
+    env_file: .env
+    environment:
+      COUCHDB_URL: http://couchdb:5984
+      REDIS_HOST: redis
+      MCP_GATEWAY_URL: http://mcp-gateway:${MCP_GATEWAY_PORT}
+      LITELLM_PROXY_URL: http://litellm-proxy:4000
+    command: ["celery", "-A", "orchestrator.celery_app", "worker", "-Q", "${CELERY_QUEUE_STRUCTURAL}", "--loglevel=INFO"]
+    depends_on:
+      - redis
+      - couchdb
+      - mcp-gateway
+
+  celery-worker-recommendation:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    container_name: celery-worker-recommendation
+    env_file: .env
+    environment:
+      COUCHDB_URL: http://couchdb:5984
+      REDIS_HOST: redis
+      MCP_GATEWAY_URL: http://mcp-gateway:${MCP_GATEWAY_PORT}
+      LITELLM_PROXY_URL: http://litellm-proxy:4000
+    command: ["celery", "-A", "orchestrator.celery_app", "worker", "-Q", "${CELERY_QUEUE_RECOMMENDATION}", "--loglevel=INFO"]
+    depends_on:
+      - redis
+      - couchdb
+      - mcp-gateway
+
+  celery-worker-epic-story:
+    # Consumes CELERY_QUEUE_EPIC_STORY (defined in .env) — triggered by
+    # POST /jobs/generate-epics-stories, not appended to the per-file
+    # pipeline chain (an epic spans programs across separate uploads).
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    container_name: celery-worker-epic-story
+    env_file: .env
+    environment:
+      COUCHDB_URL: http://couchdb:5984
+      REDIS_HOST: redis
+      MCP_GATEWAY_URL: http://mcp-gateway:${MCP_GATEWAY_PORT}
+      LITELLM_PROXY_URL: http://litellm-proxy:4000
+    command: ["celery", "-A", "orchestrator.celery_app", "worker", "-Q", "${CELERY_QUEUE_EPIC_STORY}", "--loglevel=INFO"]
+    depends_on:
+      - redis
+      - couchdb
+      - mcp-gateway
+
+  # ---------------------------------------------------------------------------
+  # Core API services
+  # ---------------------------------------------------------------------------
+  source-mgmt-service:
+    build:
+      context: .
+      dockerfile: backend/source_mgmt_service/Dockerfile
+    container_name: source-mgmt-service
+    env_file: .env
+    environment:
+      COUCHDB_URL: http://couchdb:5984
+      MCP_GATEWAY_URL: http://mcp-gateway:${MCP_GATEWAY_PORT}
+    ports:
+      - "${SOURCE_MGMT_SERVICE_PORT}:${SOURCE_MGMT_SERVICE_PORT}"
+    depends_on:
+      - couchdb
+      - mcp-gateway
+
+  job-pipeline-control-service:
+    build:
+      context: .
+      dockerfile: backend/job_pipeline_control_service/Dockerfile
+    container_name: job-pipeline-control-service
+    env_file: .env
+    environment:
+      COUCHDB_URL: http://couchdb:5984
+      REDIS_HOST: redis
+      MCP_GATEWAY_URL: http://mcp-gateway:${MCP_GATEWAY_PORT}
+    ports:
+      - "${JOB_PIPELINE_CONTROL_SERVICE_PORT}:${JOB_PIPELINE_CONTROL_SERVICE_PORT}"
+    depends_on:
+      - couchdb
+      - redis
+      - mcp-gateway
+
+  recommendation-service:
+    build:
+      context: .
+      dockerfile: backend/recommendation_service/Dockerfile
+    container_name: recommendation-service
+    env_file: .env
+    environment:
+      COUCHDB_URL: http://couchdb:5984
+      MCP_GATEWAY_URL: http://mcp-gateway:${MCP_GATEWAY_PORT}
+    ports:
+      - "${RECOMMENDATION_SERVICE_PORT}:${RECOMMENDATION_SERVICE_PORT}"
+    depends_on:
+      - couchdb
+      - mcp-gateway
+
+  epic-story-service:
+    build:
+      context: .
+      dockerfile: backend/epic_story_service/Dockerfile
+    container_name: epic-story-service
+    env_file: .env
+    environment:
+      COUCHDB_URL: http://couchdb:5984
+      MCP_GATEWAY_URL: http://mcp-gateway:${MCP_GATEWAY_PORT}
+    ports:
+      - "${EPIC_STORY_SERVICE_PORT}:${EPIC_STORY_SERVICE_PORT}"
+    depends_on:
+      - couchdb
+      - mcp-gateway
+
+  # ---------------------------------------------------------------------------
+  # BFFs
+  # ---------------------------------------------------------------------------
+  ingestion-bff:
+    build:
+      context: .
+      dockerfile: backend/ingestion_bff/Dockerfile
+    container_name: ingestion-bff
+    env_file: .env
+    environment:
+      SOURCE_MGMT_SERVICE_URL: http://source-mgmt-service:${SOURCE_MGMT_SERVICE_PORT}
+      JOB_PIPELINE_CONTROL_SERVICE_URL: http://job-pipeline-control-service:${JOB_PIPELINE_CONTROL_SERVICE_PORT}
+      MCP_GATEWAY_URL: http://mcp-gateway:${MCP_GATEWAY_PORT}
+    ports:
+      - "${INGESTION_BFF_PORT}:${INGESTION_BFF_PORT}"
+    depends_on:
+      - source-mgmt-service
+      - job-pipeline-control-service
+
+  review-bff:
+    build:
+      context: .
+      dockerfile: backend/review_bff/Dockerfile
+    container_name: review-bff
+    env_file: .env
+    environment:
+      RECOMMENDATION_SERVICE_URL: http://recommendation-service:${RECOMMENDATION_SERVICE_PORT}
+      JOB_PIPELINE_CONTROL_SERVICE_URL: http://job-pipeline-control-service:${JOB_PIPELINE_CONTROL_SERVICE_PORT}
+      SOURCE_MGMT_SERVICE_URL: http://source-mgmt-service:${SOURCE_MGMT_SERVICE_PORT}
+      EPIC_STORY_SERVICE_URL: http://epic-story-service:${EPIC_STORY_SERVICE_PORT}
+      REDIS_HOST: redis
+      MCP_GATEWAY_URL: http://mcp-gateway:${MCP_GATEWAY_PORT}
+    ports:
+      - "${REVIEW_BFF_PORT}:${REVIEW_BFF_PORT}"
+    depends_on:
+      - recommendation-service
+      - job-pipeline-control-service
+      - source-mgmt-service
+      - epic-story-service
+      - redis
+
+  editor-admin-bff:
+    build:
+      context: .
+      dockerfile: backend/editor_admin_bff/Dockerfile
+    container_name: editor-admin-bff
+    env_file: .env
+    environment:
+      EPIC_STORY_SERVICE_URL: http://epic-story-service:${EPIC_STORY_SERVICE_PORT}
+    ports:
+      - "${EDITOR_ADMIN_BFF_PORT}:${EDITOR_ADMIN_BFF_PORT}"
+    depends_on:
+      - epic-story-service
+
+  # ---------------------------------------------------------------------------
+  # Frontend micro frontends
+  # ---------------------------------------------------------------------------
+  shell:
+    build:
+      context: ./frontend/shell
+      dockerfile: Dockerfile
+    container_name: shell
+    env_file: .env
+    ports:
+      - "${SHELL_PORT}:${SHELL_PORT}"
+
+  upload-mfe:
+    build:
+      context: ./frontend/upload-mfe
+      dockerfile: Dockerfile
+    container_name: upload-mfe
+    env_file: .env
+    environment:
+      INGESTION_BFF_URL: http://localhost:${INGESTION_BFF_PORT}
+    ports:
+      - "${UPLOAD_MFE_PORT}:${UPLOAD_MFE_PORT}"
+
+  review-mfe:
+    build:
+      context: ./frontend
+      dockerfile: review-mfe/Dockerfile
+    container_name: review-mfe
+    env_file: .env
+    environment:
+      REVIEW_BFF_URL: http://localhost:${REVIEW_BFF_PORT}
+    ports:
+      - "${REVIEW_MFE_PORT}:${REVIEW_MFE_PORT}"
+
+  editor-mfe:
+    build:
+      context: ./frontend
+      dockerfile: editor-mfe/Dockerfile
+    container_name: editor-mfe
+    env_file: .env
+    environment:
+      EDITOR_ADMIN_BFF_URL: http://localhost:${EDITOR_ADMIN_BFF_PORT}
+    ports:
+      - "${EDITOR_MFE_PORT}:${EDITOR_MFE_PORT}"
+
+  admin-mfe:
+    # [STUB] "coming soon" — see docs/deferred_scope.md
+    build:
+      context: ./frontend/admin-mfe
+      dockerfile: Dockerfile
+    container_name: admin-mfe
+    env_file: .env
+    ports:
+      - "${ADMIN_MFE_PORT}:${ADMIN_MFE_PORT}"
+
+volumes:
+  couchdb-data:
+  redis-data:

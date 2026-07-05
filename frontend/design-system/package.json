@@ -1,0 +1,24 @@
+{
+  "name": "@harness/design-system",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal shared React components (Button, Table, Badge) used across MFEs, per architecture.md section 8's shared-singleton governance.",
+  "type": "module",
+  "main": "src/index.tsx",
+  "peerDependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.4.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^18.3.0",
+    "jsdom": "^24.1.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "vitest": "^2.0.0"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}

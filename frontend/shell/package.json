@@ -1,0 +1,29 @@
+{
+  "name": "@harness/shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Module Federation host app (port 3000). Runtime-composes the Upload, Review, Editor, and Admin remotes; owns global error boundaries per remote.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3000",
+    "build": "vite build",
+    "preview": "vite preview --port 3000",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "devDependencies": {
+    "@module-federation/vite": "1.1.6",
+    "@testing-library/jest-dom": "^6.4.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "jsdom": "^24.1.0",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.0",
+    "vitest": "^2.0.0"
+  }
+}

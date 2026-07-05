@@ -1,0 +1,10 @@
+{
+  "name": "@harness/shared-deps",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pins the exact shared-singleton versions (React, React-DOM, design-system) every Module Federation remote must build against (architecture.md section 8, shared-dependency governance).",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"@harness/shared-deps: no runtime code to test, version manifest only\" && exit 0"
+  }
+}

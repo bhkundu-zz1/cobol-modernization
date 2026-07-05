@@ -1,0 +1,9 @@
+[project]
+name = "mock-llm-server"
+version = "0.1.0"
+description = "OpenAI-chat-completions-compatible mock LLM server for local dev (no API keys required)."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+]

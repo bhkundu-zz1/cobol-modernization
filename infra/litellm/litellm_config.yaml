@@ -1,0 +1,79 @@
+# LiteLLM Proxy model registry.
+#
+# Status: [REAL] per the plan (Phase 3 wires this into the actual
+# celery-worker containers/agent llm_client.py calls; the file itself is
+# written now per Phase 1 scope, since docker-compose.yml's litellm-proxy
+# service already mounts this path).
+#
+# Ground rule: agents/skills reference a *logical* model name only (e.g.
+# "cobol-analysis-dev"), never a literal provider/model string — see
+# architecture.md section 4 and the plan's "Key interfaces" (SKILL.md
+# frontmatter `model: <logical-name>`). Swapping providers/models is a
+# change to this file, not to agent or skill code.
+#
+# API keys are never inlined here — they're referenced via
+# `os.environ/VAR_NAME`, which LiteLLM resolves from the process
+# environment (itself populated from `.env`, per this project's
+# .env-everywhere rule).
+#
+# `cobol-analysis-dev` (the model every SKILL.md in this pass actually
+# declares in its frontmatter) points at the real Anthropic commercial model
+# so agents get genuine COBOL reasoning instead of pattern-matched mock
+# JSON. The in-repo mock-llm service (infra/mock_llm/server.py) remains
+# available and registered under `cobol-analysis-mock` below for offline/
+# zero-API-key demo runs — swap `cobol-analysis-dev` back to it if needed.
+# Ollama/vLLM entries are registered below for the real (non-mock)
+# local/self-hosted path, but are not started this pass — see
+# docs/deferred_scope.md.
+
+model_list:
+  # --- Default model: commercial Anthropic, aliased as the logical dev name --
+  - model_name: cobol-analysis-dev
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # --- In-repo mock LLM server — kept registered for offline/zero-key demo runs
+  - model_name: cobol-analysis-mock
+    litellm_params:
+      model: openai/mock-echo
+      api_base: http://mock-llm:9000
+      api_key: not-needed-for-mock
+
+  # --- Self-hosted OSS, dev/small models (Ollama) — registered, not started this pass
+  - model_name: cobol-analysis-ollama
+    litellm_params:
+      model: ollama/qwen2.5-coder:32b
+      api_base: http://ollama:11434
+
+  # --- Self-hosted OSS, larger models (vLLM cluster) — registered, not started this pass
+  - model_name: cobol-analysis-oss
+    litellm_params:
+      model: openai/llama-3.3-70b
+      api_base: http://vllm-cluster:8000/v1
+      api_key: os.environ/VLLM_API_KEY
+
+  # --- Commercial: Anthropic ---------------------------------------------------
+  - model_name: cobol-analysis-default
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # --- Commercial: OpenAI ------------------------------------------------------
+  - model_name: commercial-gpt
+    litellm_params:
+      model: openai/gpt-5.1
+      api_key: os.environ/OPENAI_API_KEY
+
+router_settings:
+  routing_strategy: usage-based-routing-v2
+  fallbacks:
+    - cobol-analysis-default: ["cobol-analysis-oss"]
+
+litellm_settings:
+  # Langfuse callbacks are declared here per architecture.md section 4, but
+  # the real self-hosted Langfuse stack is deferred this pass (see
+  # docs/deferred_scope.md) — these callbacks will no-op/fail soft until
+  # LANGFUSE_HOST/keys point at a real instance.
+  success_callback: ["langfuse"]
+  failure_callback: ["langfuse"]

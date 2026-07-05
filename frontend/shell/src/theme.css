@@ -1,0 +1,84 @@
+/* Shell-wide design tokens and base styles, inspired by claude.ai's visual
+   identity: warm neutral (not stark white/black) surfaces, a muted clay/
+   terracotta accent, a serif display face for headings paired with a clean
+   system sans for body text, soft rounded corners, and quiet borders
+   instead of heavy drop shadows. */
+
+:root {
+  --color-bg: #faf9f6;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-border: #e8e4dc;
+  --color-border-strong: #d9d3c7;
+
+  --color-text: #2b2823;
+  --color-text-muted: #6b6558;
+  --color-text-faint: #928c7d;
+
+  --color-accent: #c15f3c;
+  --color-accent-hover: #a94f2f;
+  --color-accent-soft: #f3e3d8;
+
+  /* Distinct capability accent: manual upload (a one-time, user-driven
+     file transfer) uses --color-accent; connecting to a mainframe repo
+     (a live, credentialed system connection) uses this cooler slate/blue
+     so the two upload capabilities read as visually different at a glance. */
+  --color-mainframe-accent: #3b6ea5;
+  --color-mainframe-accent-soft: rgba(59, 110, 165, 0.1);
+
+  --color-nav-active-bg: #f3ede3;
+
+  --font-display: "Source Serif 4", "Iowan Old Style", "Palatino Linotype", Georgia, ui-serif, serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  --shadow-sm: 0 1px 2px rgba(43, 40, 35, 0.06);
+  --shadow-md: 0 4px 16px rgba(43, 40, 35, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #262523;
+    --color-surface: #302f2c;
+    --color-surface-raised: #383734;
+    --color-border: #423f3a;
+    --color-border-strong: #524e47;
+
+    --color-text: #ece8e0;
+    --color-text-muted: #b3ab9c;
+    --color-text-faint: #8a8375;
+
+    --color-accent: #e08462;
+    --color-accent-hover: #e89b7c;
+    --color-accent-soft: #4a3327;
+
+    --color-mainframe-accent: #7fadd9;
+    --color-mainframe-accent-soft: rgba(127, 173, 217, 0.16);
+
+    --color-nav-active-bg: #3a3733;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}

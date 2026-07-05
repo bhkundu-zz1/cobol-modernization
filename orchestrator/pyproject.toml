@@ -1,0 +1,22 @@
+[project]
+name = "harness-orchestrator"
+version = "0.1.0"
+description = "Celery app, pipeline chain/chord wiring, and checkpoint helper for the agent pipeline."
+requires-python = ">=3.11"
+dependencies = [
+    "celery[redis]>=5.4",
+    "redis>=5.0",
+    "fastmcp>=3.0",
+    "harness-shared",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv.sources]
+harness-shared = { path = "../backend/shared", editable = true }
