@@ -171,6 +171,62 @@ Once epics/stories exist (§2.2), a reviewer exports selected items to a backlog
 
 **UI**: the Editor MFE (§8) presents a destination picker (GitHub / Jira) with a real, fillable connection form for both. Selecting Jira and submitting surfaces the backend's `NotImplementedError` verbatim as a 501 — the same failure path already proven for real (non-mock) mainframe SCM tools in the Upload MFE.
 
+### 1c. Code generation GitHub commit adapter (backlog execution, third off-ramp)
+
+Once a story's `source_program_ids` are all backed by an **approved**
+`migration_recommendation` (§2.2), an operator can generate a first-draft
+microservice from the Code Generation MFE (§8) and commit it straight to a
+client-configured GitHub repository — closing the loop from "here's what
+to build" to "here's a first cut of the code," without ever writing
+anything to a shared filesystem or Docker volume.
+
+**Why GitHub, not a filesystem/volume**: a git commit is immediately
+reviewable as a diff, versioned, and inspectable without exec-ing into a
+container — closer to how a migration engineer actually wants to receive
+generated code. It also reuses §1b's already-proven pattern: an adapter
+that dereferences a `CODEGEN_GIT_TOKEN` from `.env` into a live token at
+call time (via `os.environ`), the same reference-not-inline convention
+every credential in this system follows.
+
+**Design**: `codegen.commit_files` (`mcp_gateway/app/tools/codegen_tools.py`)
+takes the LLM's generated files for one story and writes them as **one
+commit** to `CODEGEN_GIT_REPO_OWNER/CODEGEN_GIT_REPO_NAME` on
+`CODEGEN_GIT_BRANCH`, under a `{story_id}/` folder — via the GitHub Git
+Data API sequence (create blobs → create a tree on top of the branch's
+current tree → create a commit → move the branch ref), not the simpler
+Contents API, specifically so a multi-file generation run lands as one
+commit instead of one commit per file. If the branch ref moved
+concurrently between reading its tip and updating it (another commit
+landed mid-run), the whole sequence retries a bounded number of times —
+the same class of read-modify-write race the `job_run` checkpoint (§3.3)
+already guards against, applied here to a git ref instead of a CouchDB
+revision.
+
+**Safety checks before any GitHub call**: every file's `relative_path` is
+rejected if absolute, containing `..` segments, or empty — enforced twice,
+once at the LLM output schema layer (`agents/codegen/task.py`, defense in
+depth) and once authoritatively at this MCP tool boundary; `story_id` is
+restricted to characters safe in a GitHub tree path; file count and total
+content size are bounded so a single generation run can't produce
+something unbounded.
+
+**Language choice**: the operator picks Python or Java Spring Boot per
+generation click (not a stored per-story default); the target program's
+own `migration_recommendation.recommended_target` is shown for context
+only — the prompt explicitly instructs the model to honor the operator's
+chosen language for *this run* regardless of what the recommendation's
+rationale argues for, since the recommendation was written to justify why
+the program was approved for migration at all, not to pick this run's
+output language.
+
+**Approval gate re-verified server-side**: the agent task
+(`agents/codegen/task.py`) never trusts that the frontend's eligibility
+check is still fresh — before calling the LLM or committing anything, it
+re-reads every source program's `migration_recommendation` and confirms
+`human_review_status == "approved"`, exactly mirroring §1b's export gate
+philosophy of never re-using a client-side check as the authoritative
+one.
+
 ## 2. CouchDB data model
 
 ### 2.1 Document type convention
@@ -322,9 +378,20 @@ Raw source is stored as a CouchDB attachment, not inlined in the JSON body, so d
   "generated_by_agent": "epic-story-writer@v1", "edited_by_human": true,
   "edit_history_ref": ["audit_log doc ids..."],
   "export_status": "not_exported|exported", "export_target": "github|jira|null",
-  "external_issue_key": null, "external_issue_url": null
+  "external_issue_key": null, "external_issue_url": null,
+  "code_generation_status": "not_generated|generating|generated|failed",
+  "code_generation_target": "python|java_spring_boot|null",
+  "code_generation_job_run_id": null,
+  "generated_code_repo_path": null,
+  "generated_code_commit_sha": null, "generated_code_commit_url": null,
+  "code_generation_error": null
 }
 ```
+
+The `code_generation_*` fields follow the same "latest state" pattern as
+`export_status`/`export_target` above — full history is already free via
+`audit_append` events (`action: "created_codegen_artifact"`), so no
+separate document type is needed. See §3.2 stage [5] and §1c.
 
 **`job_run`** / **`agent_task`** (pipeline execution tracking — mirrors Celery state durably):
 
@@ -421,9 +488,24 @@ source_upload
                    |
                    v
         job_run marked "completed" -> review queue populated
+                   |
+                   v (triggered independently, per-story, once approved)
+        [5] Code Generation Agent (codegen-python | codegen-java-spring-boot)
+           - re-verifies EVERY source program's recommendation is
+             human_review_status == "approved" server-side (never
+             trusts the frontend's eligibility check)
+           - reads plain_english_summary + structure + recommendation
+             for grounding; original COBOL source is never written
+             anywhere new, only read to build the prompt
+           - generates a runnable microservice in the operator-chosen
+             language (Python or Java Spring Boot, picked per click)
+           - commits the generated files as ONE commit to a
+             client-configured GitHub repo under `{story_id}/`, via
+             codegen.commit_files (§1c) — no filesystem/volume write
+           - writes commit SHA/URL back onto the story doc
 ```
 
-Each numbered stage is one `agent_task` document plus one Celery task; stage 2 is a Celery group (parallel fan-out per file) followed by a chord callback that only proceeds to stage 3 once every file in the batch is structurally parsed (or individually marked failed/needs-review, so one bad file doesn't block the whole batch).
+Each numbered stage is one `agent_task` document plus one Celery task; stage 2 is a Celery group (parallel fan-out per file) followed by a chord callback that only proceeds to stage 3 once every file in the batch is structurally parsed (or individually marked failed/needs-review, so one bad file doesn't block the whole batch). Stage 5, like stage 4, is triggered per-story by a human action (clicking "Generate" in the Code Generation MFE) rather than chained automatically after stage 4 — a story only becomes eligible once a human has approved its underlying recommendation(s) in the Review Queue.
 
 ### 3.3 State handoff and crash-resume
 
@@ -447,10 +529,13 @@ agents/
     ingestion-chunking/SKILL.md
     mainframe-ingestion/SKILL.md
     qa-drilldown/SKILL.md
+    codegen-python/SKILL.md
+    codegen-java-spring-boot/SKILL.md
   tools/                      # MCP tool declarations/schemas the skills are allowed to call
     couchdb_tools.md
     jira_export_tool.md
     mainframe_tools.md
+    codegen_tools.md
 ```
 
 `mainframe-ingestion/SKILL.md` describes how/when to trigger a connector-based pull (e.g. "pull all elements in system X, subsystem Y matching type COBOL") versus a manual upload — deliberately editable by a non-engineer (a client's COBOL SME knows which systems/subsystems matter, not the harness team), same rationale as every other skill file below. `agents/tools/mainframe_tools.md` documents the `mainframe.fetch_source` schema (§1a) alongside the existing tool declarations.
@@ -557,6 +642,7 @@ Each micro frontend is its own Vite+React app, its own port, its own repo folder
 | Review Queue / Dashboard | 3002 | Primary surface: sortable/filterable list of parsed programs, recommendations, confidence scores, approve/reject/comment; expand a row for source/recommendation/backlog detail; trigger epic/story generation | Review BFF :8002 |
 | Epic/Story Editor | 3003 | Edit generated epics/stories, view traceability back to source paragraphs/JCL steps, export to GitHub (Milestones/Issues, real) or Jira (real UI, backend not implemented — see §1b) | Editor/Admin BFF :8003 (export sub-path) |
 | Admin/Observability | 3004 | Kill switch, job_run history, model policy per project, links out to Langfuse UI, audit log viewer/export | Editor/Admin BFF :8003 |
+| Code Generation | 3005 | Lists stories eligible for generation ("approved stories only"), a Python/Java Spring Boot language picker, per-row Generate + status/commit-link display | Codegen BFF :8008 |
 
 **Composition mechanism**: Module Federation 2.0 (via `@module-federation/vite` or an rspack MF plugin — Vite-based tooling recommended for faster local dev over classic webpack MF). The shell app dynamically imports each remote's exposed root component at runtime (not iframe-embedded), each remote wrapped in its own React error boundary in the shell. This is how failure isolation works: if the Epic/Story Editor remote fails to load (network error, remote down, runtime exception), the shell's error boundary for that specific mount point shows a "this section is temporarily unavailable" fallback while Upload, Review Queue, and Admin remain fully functional — each remote is a separately fetched bundle and separately rendered subtree, so a crash in one doesn't unmount the others.
 
@@ -592,7 +678,7 @@ Container-per-service, one port per micro frontend (hard requirement). Docker Co
 | BFFs (3) + core API services (4) | Separate FastAPI containers, internal ports 8001–8003 (BFF) / 800x (core), behind an internal reverse proxy (nginx or Traefik) that terminates TLS and is the only externally reachable ingress for the browser | Self-hosted |
 | CouchDB | 3-node CouchDB cluster (HA plus `_changes`-feed-driven replication) | Self-hosted initially; IBM Cloudant (managed CouchDB-compatible) is a documented drop-in upgrade path since the `ibmcloudant` SDK already targets both |
 | Redis | Single instance (broker + result backend + cache); consider Redis Sentinel/Cluster for prod HA | Self-hosted or managed |
-| Celery workers | Separate deployment from the API services, horizontally scalable, one worker pool per queue (`ingestion`, `structural`, `recommendation`, `epic_story`) so a slow queue doesn't starve others | Self-hosted |
+| Celery workers | Separate deployment from the API services, horizontally scalable, one worker pool per queue (`ingestion`, `structural`, `recommendation`, `epic_story`, `codegen`) so a slow queue doesn't starve others | Self-hosted |
 | MCP Gateway | Its own FastMCP container, internal-only network, the sole egress point agents have to CouchDB/Jira | Self-hosted |
 | LiteLLM Proxy | Its own container, pinned version, internal-only | Self-hosted |
 | Guardrails service | Its own container (`nemoguardrails server`), internal-only, sits in front of LiteLLM | Self-hosted |
@@ -602,11 +688,12 @@ Container-per-service, one port per micro frontend (hard requirement). Docker Co
 | Audit anchor store | Object storage with Object Lock/Compliance mode (e.g. S3-compatible WORM) | Managed cloud object storage recommended — compliance-grade WORM is a solved problem there |
 | Secrets/`.env` | `.env` files per service/component, never committed; in Kubernetes, promoted to Secrets/External Secrets Operator reading from a vault, still following the "no hardcoding, config separate from code" rule at the deployment layer | N/A |
 
-## Next steps (not part of this design pass)
+## Current status
 
-This document is architecture-only; no application source exists yet. When scaffolding begins, the priority files are:
-
-- `.env.example` — documents every environment variable this design implies (CouchDB URL/creds, Redis URL, LiteLLM proxy URL/keys, Langfuse keys, Guardrails service URL, MCP gateway URL, kill-switch admin token, mainframe connector settings: `SCM_TOOL`, host/port, auth-mode, credential-reference — §1a).
-- `agents/skills/*/SKILL.md` — the editable behavior surface; should exist before any agent Python code, since code loads these rather than embedding prompts.
-- `litellm_config.yaml` — the model registry, the concrete artifact that fulfills "swap models without touching agent code."
-- `docker-compose.yml` (or equivalent Kubernetes manifests) — enumerates every container/port in §10, making the topology explicit early.
+This document's data model, pipeline design, and NFRs are ground truth for
+the implemented system — the application source described throughout now
+exists (see the top-level [`README.md`](../README.md) for the current
+service map and a real/stubbed breakdown). For the authoritative,
+up-to-date list of what's real versus stubbed in this pass, see
+[`docs/deferred_scope.md`](deferred_scope.md) rather than this section,
+which is no longer updated per-feature.

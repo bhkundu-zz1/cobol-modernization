@@ -13,3 +13,5 @@ export const ReviewApp = lazy(() => import("review_mfe/ReviewApp"));
 export const EditorApp = lazy(() => import("editor_mfe/EditorApp"));
 // @ts-expect-error - module federation remote, resolved at build/dev-server time
 export const AdminApp = lazy(() => import("admin_mfe/AdminApp"));
+// @ts-expect-error - module federation remote, resolved at build/dev-server time
+export const CodegenApp = lazy(() => import("codegen_mfe/CodegenApp"));

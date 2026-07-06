@@ -26,6 +26,7 @@ export default defineConfig({
         review_mfe: { type: "module", name: "review_mfe", entry: remoteUrl("VITE_SHELL_REMOTE_REVIEW_URL", 3002) },
         editor_mfe: { type: "module", name: "editor_mfe", entry: remoteUrl("VITE_SHELL_REMOTE_EDITOR_URL", 3003) },
         admin_mfe: { type: "module", name: "admin_mfe", entry: remoteUrl("VITE_SHELL_REMOTE_ADMIN_URL", 3004) },
+        codegen_mfe: { type: "module", name: "codegen_mfe", entry: remoteUrl("VITE_SHELL_REMOTE_CODEGEN_URL", 3005) },
       },
       shared: {
         react: { singleton: true, requiredVersion: "^18.3.0" },

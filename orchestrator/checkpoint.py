@@ -82,20 +82,40 @@ def write_checkpoint(
             if not _is_conflict(exc) or attempt == _MAX_CONFLICT_RETRIES - 1:
                 raise
 
-    client.couchdb_write(
-        database="agent_runs",
-        doc={
-            "_id": f"{project_id}:{agent_task_id}:agent_task",
-            "type": "agent_task",
-            "job_run_id": job_run_id,
-            "agent": agent,
-            "status": status,
-            "error": error,
-        },
-        project_id=project_id,
-        created_by=f"agent:{agent}",
-        trace_id=f"{job_run_id}:{agent_task_id}",
-    )
+    # Same conflict-retry treatment as the job_run write above: this
+    # standalone agent_task doc is keyed by agent_task_id, and a task that
+    # calls write_checkpoint twice for the same agent_task_id (e.g. once at
+    # start with status="running", again at completion/failure) writes to
+    # the same doc twice — the second write must read the first's _rev
+    # rather than constructing a revision-less doc that CouchDB rejects
+    # with a 409 (confirmed as a live bug: a codegen failure's own
+    # write_checkpoint(status="failed") call hit this exact 409, masking
+    # the task's real underlying error).
+    for attempt in range(_MAX_CONFLICT_RETRIES):
+        existing_agent_task = client.couchdb_read(database="agent_runs", doc_id=f"{project_id}:{agent_task_id}:agent_task")
+        existing_docs = existing_agent_task.get("docs", [])
+        agent_task_doc = existing_docs[0] if existing_docs else {"_id": f"{project_id}:{agent_task_id}:agent_task"}
+        agent_task_doc.update(
+            {
+                "type": "agent_task",
+                "job_run_id": job_run_id,
+                "agent": agent,
+                "status": status,
+                "error": error,
+            }
+        )
+        try:
+            client.couchdb_write(
+                database="agent_runs",
+                doc=agent_task_doc,
+                project_id=project_id,
+                created_by=f"agent:{agent}",
+                trace_id=f"{job_run_id}:{agent_task_id}",
+            )
+            break
+        except ToolError as exc:
+            if not _is_conflict(exc) or attempt == _MAX_CONFLICT_RETRIES - 1:
+                raise
 
 
 def mark_job_run_finished(

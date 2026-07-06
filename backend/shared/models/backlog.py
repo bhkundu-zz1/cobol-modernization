@@ -15,6 +15,7 @@ from typing import Literal
 from .envelope import DocEnvelope
 
 ExportTarget = Literal["jira", "github"]
+CodeGenTarget = Literal["python", "java_spring_boot"]
 
 
 class Epic(DocEnvelope):
@@ -42,3 +43,10 @@ class Story(DocEnvelope):
     export_target: ExportTarget | None = None
     external_issue_key: str | None = None
     external_issue_url: str | None = None
+    code_generation_status: Literal["not_generated", "generating", "generated", "failed"] = "not_generated"
+    code_generation_target: CodeGenTarget | None = None
+    code_generation_job_run_id: str | None = None
+    generated_code_repo_path: str | None = None
+    generated_code_commit_sha: str | None = None
+    generated_code_commit_url: str | None = None
+    code_generation_error: str | None = None

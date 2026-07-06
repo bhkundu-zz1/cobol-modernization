@@ -166,5 +166,27 @@ class IssueTrackerExportResult(BaseModel):
     epic_milestones: list[ExportedMilestoneResult]
 
 
+# --- codegen.commit_files -------------------------------------------------------
+
+
+class CodegenFileEntry(BaseModel):
+    relative_path: str
+    content: str
+
+
+class CodegenCommitFilesRequest(BaseModel):
+    project_id: str
+    story_id: str
+    files: list[CodegenFileEntry]
+    commit_message: str
+    requesting_agent: str
+
+
+class CodegenCommitFilesResult(BaseModel):
+    commit_sha: str
+    commit_url: str
+    repo_path: str
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)

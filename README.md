@@ -26,6 +26,12 @@ source (upload or mainframe pull)
   -> Review Queue (human approves/rejects each recommendation)
   -> Epic/Story-Writer Agent         (understand -> cluster -> draft backlog)
   -> Epic/Story Editor (human edits, then exports to GitHub/Jira)
+  -> Code Generation Agent           (approved stories only; human picks
+                                       Python or Java Spring Boot, then
+                                       "Generate" commits a first-draft
+                                       microservice to a configured GitHub
+                                       repo under {story_id}/ — one commit
+                                       per run, no filesystem/volume write)
 ```
 
 Every stage is a Celery task that reads/writes CouchDB exclusively through
@@ -39,11 +45,11 @@ and validates its own output against a Pydantic schema before it's trusted
 
 | Layer | Technology | Why |
 |---|---|---|
-| Frontend | React micro-frontends (Module Federation), one shell + 4 independently-deployable remotes | A failure in one remote (e.g. the Editor) never takes down Upload or Review |
+| Frontend | React micro-frontends (Module Federation), one shell + 5 independently-deployable remotes | A failure in one remote (e.g. the Editor) never takes down Upload or Review |
 | BFFs | Python (FastAPI) | Page-specific aggregation so each MFE gets one call, not N |
 | Core services | Python (FastAPI) | Source management, job/pipeline control, recommendations, epics/stories |
 | Agents | Python + Celery/Redis | One task per pipeline stage; skills are editable markdown, not code |
-| Database | CouchDB | 7 databases: `sources`, `parsed_structure`, `agent_runs`, `recommendations`, `backlog`, `audit_log` (append-only), `config_meta` |
+| Database | CouchDB | 7 databases: `sources`, `parsed_structure`, `agent_runs`, `recommendations`, `backlog` (epics/stories, incl. code-generation status/commit fields), `audit_log` (append-only), `config_meta` |
 | LLM gateway | LiteLLM proxy | Agents reference a logical model name (`cobol-analysis-dev`); the proxy config maps that to a real provider |
 | Agent↔system access | MCP gateway (FastMCP) | The *only* path from agent code to CouchDB, the audit log, kill-switch state, and mainframe connectors |
 | Guardrails | In-process stub this pass (schema validation is real; containerized NeMo Guardrails input-rail is not) | See [Current status](#current-status-what-is-real-vs-stubbed) |
@@ -73,12 +79,14 @@ without touching Python code.
 | `epic-story-writer` | Clusters programs into epics by shared copybooks/call-graph edges (deterministic), then drafts stories with acceptance criteria citing real paragraph/step names | Real, triggered independently of the per-file pipeline |
 | `qa-drilldown` | Answers a reviewer's free-text follow-up about an already-parsed program | Skill written, **no endpoint wired** |
 | `mainframe-ingestion` | Pulls COBOL/JCL/copybook source from a client SCM tool into the same shape as a manual upload | Real end-to-end for the mock adapter only — see [Forward Deployed Engineer](#forward-deployed-engineer-connecting-this-to-a-real-mainframe-repository) |
+| `codegen-python` | Generates a first-draft, runnable Python microservice for one **approved** story, grounded in its acceptance criteria + the source program's structure/understanding | Real, triggered per-story from the Code Generation tab |
+| `codegen-java-spring-boot` | Same as above, targeting a Maven-layout Spring Boot microservice | Real, triggered per-story from the Code Generation tab |
 
 ## Getting started
 
 ```bash
 cp .env.example .env        # every config value is read from .env; nothing is hardcoded
-make up                     # docker-compose up -d — brings up all 21 services
+make up                     # docker-compose up -d — brings up all 24 services
 make init-db                # creates the 7 CouchDB databases + indexes (couchdb must be up first)
 ```
 
@@ -92,6 +100,15 @@ To point the pipeline at a real model instead of the mock, edit
 `infra/litellm/litellm_config.yaml`'s `cobol-analysis-dev` entry to resolve
 to a real provider (e.g. `anthropic/claude-sonnet-4-5`), set the matching
 API key in `.env`, and recreate the proxy: `docker-compose up -d --force-recreate litellm-proxy`.
+
+To try Code Generation, set `CODEGEN_GIT_REPO_OWNER`,
+`CODEGEN_GIT_REPO_NAME`, `CODEGEN_GIT_BRANCH`, and `CODEGEN_GIT_TOKEN` in
+`.env` (a GitHub personal access token with **Contents: Read and write**
+on that repo — a fine-grained PAT needs that permission explicitly, not
+just repository access), then recreate the services that read it:
+`docker-compose up -d --force-recreate mcp-gateway celery-worker-codegen`.
+Leaving `CODEGEN_GIT_TOKEN` unset makes generation fail loudly with a
+clear error rather than silently doing nothing.
 
 ### Running tests
 
@@ -110,6 +127,7 @@ make test-frontend   # npm test across every frontend package
 | Review Queue MFE | 3002 |
 | Epic/Story Editor MFE | 3003 |
 | Admin/Observability MFE | 3004 |
+| Code Generation MFE | 3005 |
 | Ingestion BFF | 8001 |
 | Review BFF | 8002 |
 | Editor/Admin BFF | 8003 |
@@ -117,6 +135,7 @@ make test-frontend   # npm test across every frontend package
 | Job/Pipeline Control Service | 8005 |
 | Recommendation Service | 8006 |
 | Epic/Story Service | 8007 |
+| Codegen BFF | 8008 |
 | MCP Gateway | 7000 |
 | LiteLLM Proxy | 4000 |
 | Mock LLM server | 9000 |
@@ -133,7 +152,10 @@ list; the highlights:
   migration recommendation, the two-stage epic/story generation pipeline,
   the MCP gateway (every tool has tests), the audit log's hash-chained
   append-only design, the kill-switch, the Review Queue and Epic/Story
-  Editor UIs, GitHub export.
+  Editor UIs, GitHub export, and Code Generation (approved stories only —
+  generates a first-draft Python or Java Spring Boot microservice and
+  commits it to a configured GitHub repo; see
+  [`docs/architecture.md` §1c](docs/architecture.md#1c-code-generation-github-commit-adapter-backlog-execution-third-off-ramp)).
 - **Written but not wired**: JCL structural analysis (the skill and prompt
   exist; `agents/jcl_structural/task.py` marks itself `skipped` and never
   runs), the `qa-drilldown` skill (no FastAPI endpoint calls it yet).

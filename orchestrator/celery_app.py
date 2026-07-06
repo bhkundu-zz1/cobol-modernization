@@ -35,6 +35,7 @@ app = Celery(
         "agents.jcl_structural.task",
         "agents.recommendation.task",
         "agents.epic_story_writer.task",
+        "agents.codegen.task",
     ],
 )
 
@@ -44,6 +45,7 @@ app.conf.task_routes = {
     "agents.jcl_structural.task.run_jcl_structural": {"queue": os.environ.get("CELERY_QUEUE_STRUCTURAL", "structural")},
     "agents.recommendation.task.run_recommendation": {"queue": os.environ.get("CELERY_QUEUE_RECOMMENDATION", "recommendation")},
     "agents.epic_story_writer.task.run_epic_story": {"queue": os.environ.get("CELERY_QUEUE_EPIC_STORY", "epic_story")},
+    "agents.codegen.task.run_codegen_task": {"queue": os.environ.get("CELERY_QUEUE_CODEGEN", "codegen")},
 }
 
 app.conf.worker_concurrency = int(os.environ.get("CELERY_WORKER_CONCURRENCY", 2))

@@ -60,6 +60,9 @@ services:
     environment:
       COUCHDB_URL: http://couchdb:5984
       REDIS_HOST: redis
+      CODEGEN_GIT_REPO_OWNER: ${CODEGEN_GIT_REPO_OWNER}
+      CODEGEN_GIT_REPO_NAME: ${CODEGEN_GIT_REPO_NAME}
+      CODEGEN_GIT_BRANCH: ${CODEGEN_GIT_BRANCH}
     ports:
       - "${MCP_GATEWAY_PORT}:${MCP_GATEWAY_PORT}"
     depends_on:
@@ -160,6 +163,28 @@ services:
       MCP_GATEWAY_URL: http://mcp-gateway:${MCP_GATEWAY_PORT}
       LITELLM_PROXY_URL: http://litellm-proxy:4000
     command: ["celery", "-A", "orchestrator.celery_app", "worker", "-Q", "${CELERY_QUEUE_EPIC_STORY}", "--loglevel=INFO"]
+    depends_on:
+      - redis
+      - couchdb
+      - mcp-gateway
+
+  celery-worker-codegen:
+    # Consumes CELERY_QUEUE_CODEGEN (defined in .env) — triggered by
+    # POST /jobs/generate-code, per-story like celery-worker-epic-story.
+    # Generated code is committed to a GitHub repo via the
+    # codegen.commit_files MCP tool — this worker never touches git
+    # config/credentials directly, only mcp-gateway does.
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    container_name: celery-worker-codegen
+    env_file: .env
+    environment:
+      COUCHDB_URL: http://couchdb:5984
+      REDIS_HOST: redis
+      MCP_GATEWAY_URL: http://mcp-gateway:${MCP_GATEWAY_PORT}
+      LITELLM_PROXY_URL: http://litellm-proxy:4000
+    command: ["celery", "-A", "orchestrator.celery_app", "worker", "-Q", "${CELERY_QUEUE_CODEGEN}", "--loglevel=INFO"]
     depends_on:
       - redis
       - couchdb
@@ -271,6 +296,23 @@ services:
       - epic-story-service
       - redis
 
+  codegen-bff:
+    build:
+      context: .
+      dockerfile: backend/codegen_bff/Dockerfile
+    container_name: codegen-bff
+    env_file: .env
+    environment:
+      RECOMMENDATION_SERVICE_URL: http://recommendation-service:${RECOMMENDATION_SERVICE_PORT}
+      EPIC_STORY_SERVICE_URL: http://epic-story-service:${EPIC_STORY_SERVICE_PORT}
+      JOB_PIPELINE_CONTROL_SERVICE_URL: http://job-pipeline-control-service:${JOB_PIPELINE_CONTROL_SERVICE_PORT}
+    ports:
+      - "${CODEGEN_BFF_PORT}:${CODEGEN_BFF_PORT}"
+    depends_on:
+      - recommendation-service
+      - epic-story-service
+      - job-pipeline-control-service
+
   editor-admin-bff:
     build:
       context: .
@@ -338,6 +380,17 @@ services:
     env_file: .env
     ports:
       - "${ADMIN_MFE_PORT}:${ADMIN_MFE_PORT}"
+
+  codegen-mfe:
+    build:
+      context: ./frontend
+      dockerfile: codegen-mfe/Dockerfile
+    container_name: codegen-mfe
+    env_file: .env
+    environment:
+      CODEGEN_BFF_URL: http://localhost:${CODEGEN_BFF_PORT}
+    ports:
+      - "${CODEGEN_MFE_PORT}:${CODEGEN_MFE_PORT}"
 
 volumes:
   couchdb-data:

@@ -50,10 +50,17 @@ def _extract_json_object(content: str) -> str:
 
 
 class LLMClient:
-    def __init__(self, base_url: str | None = None, api_key: str | None = None, timeout: float = 60.0) -> None:
+    def __init__(self, base_url: str | None = None, api_key: str | None = None, timeout: float | None = None) -> None:
         self.base_url = (base_url or os.environ.get("LITELLM_PROXY_URL", "http://localhost:4000")).rstrip("/")
         self.api_key = api_key or os.environ.get("LITELLM_MASTER_KEY", "")
-        self._client = httpx.Client(base_url=self.base_url, timeout=timeout)
+        # Some stages (e.g. codegen, which generates a whole multi-file
+        # microservice in one completion) routinely produce far more output
+        # tokens than a single-JSON-object recommendation/story response and
+        # can exceed a 60s default — confirmed as a live ReadTimeout against
+        # a real Anthropic-backed model. Configurable via .env rather than
+        # hardcoded so this can be tuned per deployment without a code change.
+        resolved_timeout = timeout if timeout is not None else float(os.environ.get("LLM_CLIENT_TIMEOUT_SECONDS", 180))
+        self._client = httpx.Client(base_url=self.base_url, timeout=resolved_timeout)
 
     def complete_json(
         self,

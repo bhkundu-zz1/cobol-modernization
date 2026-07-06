@@ -1,10 +1,11 @@
 """MCP gateway — FastMCP server bootstrap.
 
 Exposes couchdb.read, couchdb.write, audit.append, audit.export_range,
-kill.check, kill.set, mainframe.fetch_source, and issue_tracker.export as
-MCP tools. This process is the only path from agent code to CouchDB, the
-audit log, the kill-switch state, the mainframe connector, or the
-issue-tracker export mechanism (architecture.md section 1).
+kill.check, kill.set, mainframe.fetch_source, issue_tracker.export, and
+codegen.commit_files as MCP tools. This process is the only path from
+agent code to CouchDB, the audit log, the kill-switch state, the mainframe
+connector, the issue-tracker export mechanism, or the code-generation
+GitHub commit mechanism (architecture.md section 1).
 """
 
 from datetime import datetime
@@ -18,6 +19,8 @@ from .schemas import (
     AuditActor,
     AuditAppendRequest,
     AuditExportRangeRequest,
+    CodegenCommitFilesRequest,
+    CodegenFileEntry,
     CouchDBReadRequest,
     CouchDBWriteRequest,
     IssueTrackerExportRequest,
@@ -27,6 +30,7 @@ from .schemas import (
 )
 from .tools.audit_tools import audit_append as _audit_append
 from .tools.audit_tools import audit_export_range as _audit_export_range
+from .tools.codegen_tools import codegen_commit_files as _codegen_commit_files
 from .tools.couchdb_tools import couchdb_read as _couchdb_read
 from .tools.couchdb_tools import couchdb_write as _couchdb_write
 from .tools.export_tools import issue_tracker_export as _issue_tracker_export
@@ -159,6 +163,25 @@ def issue_tracker_export(
     )
     result = _issue_tracker_export(client, request, requesting_agent=requesting_agent, project_id=project_id)
     return result.model_dump()
+
+
+@mcp.tool()
+def codegen_commit_files(
+    project_id: str,
+    story_id: str,
+    files: list[dict[str, str]],
+    commit_message: str,
+    requesting_agent: str,
+) -> dict[str, Any]:
+    client = get_couchdb_client()
+    request = CodegenCommitFilesRequest(
+        project_id=project_id,
+        story_id=story_id,
+        files=[CodegenFileEntry(**f) for f in files],
+        commit_message=commit_message,
+        requesting_agent=requesting_agent,
+    )
+    return _codegen_commit_files(client, request).model_dump()
 
 
 if __name__ == "__main__":

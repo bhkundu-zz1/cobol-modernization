@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     mainframe_changeman_host: str = ""
     mainframe_changeman_credential_ref: str = "vault://mainframe/changeman/readonly"
 
+    # CODEGEN_GIT_TOKEN is resolved directly from os.environ inside
+    # codegen_tools.py at call time (mirrors
+    # agents/issue_tracker_export/adapter.py's credential handling) — never
+    # stored on Settings, so it never appears in a request/response schema
+    # or gets logged incidentally alongside the rest of this config object.
+    codegen_git_repo_owner: str = ""
+    codegen_git_repo_name: str = ""
+    codegen_git_branch: str = "main"
+
     def known_databases(self) -> set[str]:
         return {
             self.couchdb_db_sources,

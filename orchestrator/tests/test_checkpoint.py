@@ -88,3 +88,55 @@ def test_mark_job_run_finished_retries_through_a_single_conflict():
     job_run = client.docs[f"{PROJECT_ID}:{JOB_RUN_ID}:job_run"]
     assert job_run["status"] == "completed"
     assert job_run["finished_at"] is not None
+
+
+class RevisionCheckingClient:
+    """Fakes real CouchDB revision-conflict semantics: a write without a
+    _rev matching the doc's current stored _rev (including a write with no
+    _rev at all when a doc already exists) raises a 409, exactly like real
+    CouchDB. Unlike ConflictOnceThenSucceedClient above (which conflicts on
+    a fixed schedule regardless of what's actually written), this fake
+    reproduces the actual condition that caused a real, live bug: calling
+    write_checkpoint twice for the same agent_task_id (once at task start
+    with status="running", again at completion/failure) wrote the second
+    agent_task doc without ever reading the first write's _rev."""
+
+    def __init__(self) -> None:
+        self.docs: dict[str, dict] = {}
+        self._rev_counters: dict[str, int] = {}
+
+    def couchdb_read(self, database: str, doc_id: str | None = None, **_: object) -> dict:
+        doc = self.docs.get(doc_id)
+        return {"docs": [dict(doc)] if doc else [], "bookmark": None}
+
+    def couchdb_write(self, database: str, doc: dict, **_: object) -> dict:
+        doc_id = doc["_id"]
+        current = self.docs.get(doc_id)
+        if current is not None and doc.get("_rev") != current.get("_rev"):
+            raise ToolError("Error calling tool 'couchdb_write': Error: conflict: Document update conflict., Status code: 409")
+        next_rev_num = self._rev_counters.get(doc_id, 0) + 1
+        self._rev_counters[doc_id] = next_rev_num
+        stored = dict(doc)
+        stored["_rev"] = f"{next_rev_num}-fake"
+        self.docs[doc_id] = stored
+        return {"id": doc_id, "rev": stored["_rev"]}
+
+
+def test_write_checkpoint_called_twice_for_same_agent_task_id_does_not_conflict():
+    """Regression: a task calling write_checkpoint(status="running") at
+    start and write_checkpoint(status="completed"|"failed") at the end,
+    for the same agent_task_id, must not 409 on the second call's
+    standalone agent_task doc write."""
+    client = RevisionCheckingClient()
+
+    write_checkpoint(
+        project_id=PROJECT_ID, job_run_id=JOB_RUN_ID, agent_task_id="task-1", agent="codegen",
+        status="running", mcp_client=client,
+    )
+    write_checkpoint(
+        project_id=PROJECT_ID, job_run_id=JOB_RUN_ID, agent_task_id="task-1", agent="codegen",
+        status="failed", mcp_client=client,
+    )
+
+    agent_task_doc = client.docs[f"{PROJECT_ID}:task-1:agent_task"]
+    assert agent_task_doc["status"] == "failed"

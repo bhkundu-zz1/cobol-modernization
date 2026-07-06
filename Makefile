@@ -47,6 +47,7 @@ test-backend:
 	pytest backend/ingestion_bff/tests
 	pytest backend/review_bff/tests
 	pytest backend/editor_admin_bff/tests
+	pytest backend/codegen_bff/tests
 
 ## npm test across every frontend package.
 test-frontend:
@@ -57,6 +58,7 @@ test-frontend:
 	npm test --prefix frontend/review-mfe
 	npm test --prefix frontend/editor-mfe
 	npm test --prefix frontend/admin-mfe
+	npm test --prefix frontend/codegen-mfe
 
 ## Remove local Python/Node build & cache artifacts (does not touch .env or
 ## docker volumes).

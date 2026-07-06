@@ -4,7 +4,6 @@
 .env
 .env.*
 !.env.example
-.claude/
 
 # =============================================================================
 # Python
@@ -51,7 +50,8 @@ pnpm-debug.log*
 .vscode/
 !.vscode/extensions.json
 .idea/
-.claude/settings.local.json
+.claude/*
+!.claude/claude.md
 *.swp
 *.swo
 *~

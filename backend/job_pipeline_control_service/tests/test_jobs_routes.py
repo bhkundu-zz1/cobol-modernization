@@ -23,11 +23,19 @@ def client(monkeypatch):
         lambda project_id, job_run_id, agent_task_id: epic_story_calls.append((project_id, job_run_id, agent_task_id)),
     )
 
-    return TestClient(app), fake, epic_story_calls
+    codegen_calls = []
+    monkeypatch.setattr(
+        "app.routes.jobs.run_codegen_task.delay",
+        lambda project_id, job_run_id, agent_task_id, story_id, target_language: codegen_calls.append(
+            (project_id, job_run_id, agent_task_id, story_id, target_language)
+        ),
+    )
+
+    return TestClient(app), fake, epic_story_calls, codegen_calls
 
 
 def test_trigger_job_returns_202_with_job_run_id(client):
-    test_client, _, _ = client
+    test_client, _, _, _ = client
     response = test_client.post(
         "/jobs",
         json={
@@ -45,13 +53,13 @@ def test_trigger_job_returns_202_with_job_run_id(client):
 
 
 def test_get_job_not_found_returns_404(client):
-    test_client, _, _ = client
+    test_client, _, _, _ = client
     response = test_client.get("/jobs/nonexistent-job", params={"project_id": "acme-2026"})
     assert response.status_code == 404
 
 
 def test_get_job_returns_job_run_doc(client):
-    test_client, fake, _ = client
+    test_client, fake, _, _ = client
     fake.couchdb_write(
         database="agent_runs",
         doc={"_id": "acme-2026:jr-1:job_run", "type": "job_run", "job_run_id": "jr-1", "status": "completed"},
@@ -65,7 +73,7 @@ def test_get_job_returns_job_run_doc(client):
 
 
 def test_generate_epics_stories_returns_202_and_triggers_task(client):
-    test_client, _, epic_story_calls = client
+    test_client, _, epic_story_calls, _ = client
     response = test_client.post("/jobs/generate-epics-stories", json={"project_id": "acme-2026"})
     assert response.status_code == 202
     body = response.json()
@@ -73,3 +81,20 @@ def test_generate_epics_stories_returns_202_and_triggers_task(client):
     assert body["status"] == "running"
     assert len(epic_story_calls) == 1
     assert epic_story_calls[0][0] == "acme-2026"
+
+
+def test_generate_code_returns_202_and_triggers_task_with_story_id_and_language(client):
+    test_client, _, _, codegen_calls = client
+    response = test_client.post(
+        "/jobs/generate-code",
+        json={"project_id": "acme-2026", "story_id": "story-a", "target_language": "python"},
+    )
+    assert response.status_code == 202
+    body = response.json()
+    assert body["job_run_id"]
+    assert body["status"] == "running"
+    assert len(codegen_calls) == 1
+    project_id, job_run_id, agent_task_id, story_id, target_language = codegen_calls[0]
+    assert project_id == "acme-2026"
+    assert story_id == "story-a"
+    assert target_language == "python"

@@ -1,5 +1,6 @@
-"""POST /jobs, GET /jobs/{id}, POST /jobs/generate-epics-stories — job_run
-lifecycle tracking (architecture.md section 3.3).
+"""POST /jobs, GET /jobs/{id}, POST /jobs/generate-epics-stories,
+POST /jobs/generate-code — job_run lifecycle tracking (architecture.md
+section 3.3).
 
 POST /jobs triggers the Celery pipeline (orchestrator.pipeline.build_pipeline)
 for an already-ingested source file and returns 202 + job_run_id
@@ -11,11 +12,19 @@ directly (no chain/chord — a single project-scoped task, not a per-file
 pipeline) since epic/story generation clusters across every recommendation
 for a project, not just one uploaded file — it cannot be appended to
 build_pipeline's per-file chain.
+
+POST /jobs/generate-code triggers agents.codegen.task directly, same
+shape as generate-epics-stories — a single story-scoped task, not part of
+the per-file pipeline chain, since code generation happens on demand
+against one already-approved story, not automatically per upload.
 """
+
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
+from agents.codegen.task import run_codegen_task
 from agents.common.mcp_client import get_mcp_client
 from agents.epic_story_writer.task import run_epic_story
 from orchestrator.pipeline import build_pipeline, new_agent_task_id, new_job_run_id
@@ -35,6 +44,12 @@ class TriggerJobRequest(BaseModel):
 
 class GenerateEpicsStoriesRequest(BaseModel):
     project_id: str
+
+
+class GenerateCodeRequest(BaseModel):
+    project_id: str
+    story_id: str
+    target_language: Literal["python", "java_spring_boot"]
 
 
 @router.post("/jobs", status_code=202)
@@ -63,6 +78,17 @@ def trigger_epic_story_generation(request: GenerateEpicsStoriesRequest, response
     agent_task_id = new_agent_task_id()
 
     run_epic_story.delay(request.project_id, job_run_id, agent_task_id)
+
+    response.status_code = 202
+    return {"job_run_id": job_run_id, "status": "running"}
+
+
+@router.post("/jobs/generate-code", status_code=202)
+def trigger_codegen(request: GenerateCodeRequest, response: Response) -> dict:
+    job_run_id = new_job_run_id()
+    agent_task_id = new_agent_task_id()
+
+    run_codegen_task.delay(request.project_id, job_run_id, agent_task_id, request.story_id, request.target_language)
 
     response.status_code = 202
     return {"job_run_id": job_run_id, "status": "running"}

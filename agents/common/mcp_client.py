@@ -170,6 +170,25 @@ class MCPClient:
             project_id=project_id,
         )
 
+    # --- codegen -------------------------------------------------------------------
+
+    def codegen_commit_files(
+        self,
+        project_id: str,
+        story_id: str,
+        files: list[dict[str, str]],
+        commit_message: str,
+        requesting_agent: str,
+    ) -> dict[str, Any]:
+        return self._call_tool(
+            "codegen_commit_files",
+            project_id=project_id,
+            story_id=story_id,
+            files=files,
+            commit_message=commit_message,
+            requesting_agent=requesting_agent,
+        )
+
 
 _client: MCPClient | None = None
 

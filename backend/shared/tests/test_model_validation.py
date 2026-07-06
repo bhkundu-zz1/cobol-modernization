@@ -189,6 +189,34 @@ def test_backlog_shapes_construct_with_no_export_yet():
     assert story.export_target is None
     assert story.external_issue_key is None
     assert epic.export_target is None
+    assert story.code_generation_status == "not_generated"
+    assert story.code_generation_target is None
+    assert story.generated_code_repo_path is None
+    assert story.generated_code_commit_sha is None
+    assert story.generated_code_commit_url is None
+    assert story.code_generation_error is None
+
+
+def test_story_records_code_generation_fields():
+    story = Story(
+        **ENVELOPE_KWARGS,
+        epic_id="epic-1",
+        title="Extract gross-pay calc",
+        description="...",
+        generated_by_agent="epic-story-writer@v1",
+        code_generation_status="generated",
+        code_generation_target="python",
+        code_generation_job_run_id="jr-1",
+        generated_code_repo_path="story-a",
+        generated_code_commit_sha="abc123",
+        generated_code_commit_url="https://github.com/acme-org/generated-migrations/commit/abc123",
+    )
+    assert story.code_generation_status == "generated"
+    assert story.code_generation_target == "python"
+    assert story.generated_code_repo_path == "story-a"
+    assert story.generated_code_commit_sha == "abc123"
+    assert story.generated_code_commit_url.endswith("/commit/abc123")
+    assert story.code_generation_error is None
 
 
 def test_epic_and_story_record_github_export_fields():

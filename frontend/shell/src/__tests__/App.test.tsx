@@ -8,6 +8,7 @@ vi.mock("../remotes", () => ({
   EditorApp: () => {
     throw new Error("simulated Editor remote load failure");
   },
+  CodegenApp: () => <div>Codegen remote content</div>,
   AdminApp: () => <div>Admin remote content</div>,
 }));
 
@@ -28,12 +29,21 @@ describe("App (shell)", () => {
     await waitFor(() => expect(screen.getByText("Review remote content")).toBeInTheDocument());
   });
 
-  it("composes all four nav sections", () => {
+  it("composes all five nav sections", () => {
     render(<App />);
     expect(screen.getByRole("button", { name: "Upload / Ingestion" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review Queue" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Epic/Story Editor" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Code Generation" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Admin / Observability" })).toBeInTheDocument();
+  });
+
+  it("switches to the Code Generation remote on nav click", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Code Generation" }));
+    await waitFor(() => expect(screen.getByText("Codegen remote content")).toBeInTheDocument());
   });
 
   it("isolates a failing remote's error boundary state to its own tab (regression: state must not leak to sibling tabs on switch)", async () => {

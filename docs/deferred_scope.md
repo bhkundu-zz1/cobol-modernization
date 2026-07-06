@@ -95,6 +95,36 @@ path.
   tool-discriminated MCP tool shape (superseding the old
   `jira_export_tool.md`, which assumed a Jira-only, single-tool design).
 
+## Code generation (GitHub commit real, no filesystem/volume path)
+
+- **Real** this pass: `agents/codegen/task.py` (stage [5], architecture.md
+  §3.2/§1c) generates a first-draft microservice for one approved story in
+  either Python (`codegen-python` skill) or Java Spring Boot
+  (`codegen-java-spring-boot` skill), chosen per generation click, and
+  commits the result as one commit to a client-configured GitHub repo via
+  the new `codegen.commit_files` MCP tool
+  (`mcp_gateway/app/tools/codegen_tools.py`, GitHub Git Data API:
+  blob → tree → commit → ref-update, with bounded retry on a concurrent
+  ref move). The approval gate is re-verified server-side against every
+  source program's `migration_recommendation.human_review_status`, never
+  trusting the frontend's eligibility check. `celery-worker-codegen`,
+  `codegen_bff` (the approval-gate join + trigger/poll proxy), and the
+  Code Generation MFE (port 3005, "approved stories only") are all real
+  and wired end to end.
+- Nothing is written to a shared filesystem or Docker volume — the
+  original COBOL source is never materialized anywhere new; it's read
+  from CouchDB (`source_file.source_text`) only to ground the generation
+  prompt.
+- What's deferred: generation only ever uses the **first** program in a
+  multi-program story's `source_program_ids` as its structure/
+  understanding/recommendation input (documented as a known limitation in
+  `agents/codegen/task.py`'s module docstring) — a story spanning multiple
+  COBOL programs does not yet merge their structures into one generation
+  prompt. There is also no re-generation diffing (a second "Generate"
+  click on an already-generated story simply produces a new commit; it
+  does not show the operator a diff against the previous generation
+  first).
+
 ## Model providers
 
 - `litellm_config.yaml`'s `model_list` still documents `cobol-analysis-oss`
@@ -161,6 +191,12 @@ path.
   Federation composes all remote slots correctly (including failure
   isolation), not real functionality. No kill-switch button, no Langfuse
   link-out, no audit log viewer UI.
+- **Code Generation MFE** (`frontend/codegen-mfe`, port 3005) is real: a
+  language picker (Python / Java Spring Boot), a list of stories eligible
+  for generation ("approved stories only" — every source program's
+  recommendation approved), a per-row Generate button that triggers and
+  polls the real codegen agent, and a "view commit" link once generation
+  succeeds. See "Code generation" above.
 
 ## Deployment
 

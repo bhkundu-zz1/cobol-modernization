@@ -1,14 +1,15 @@
 import { Suspense, useState } from "react";
 
 import { RemoteErrorBoundary } from "./RemoteErrorBoundary";
-import { AdminApp, EditorApp, ReviewApp, UploadApp } from "./remotes";
+import { AdminApp, CodegenApp, EditorApp, ReviewApp, UploadApp } from "./remotes";
 
-type Section = "upload" | "review" | "editor" | "admin";
+type Section = "upload" | "review" | "editor" | "codegen" | "admin";
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: "upload", label: "Upload / Ingestion" },
   { id: "review", label: "Review Queue" },
   { id: "editor", label: "Epic/Story Editor" },
+  { id: "codegen", label: "Code Generation" },
   { id: "admin", label: "Admin / Observability" },
 ];
 
@@ -16,6 +17,7 @@ const REMOTE_BY_SECTION: Record<Section, { name: string; Component: React.Compon
   upload: { name: "Upload/Ingestion", Component: UploadApp },
   review: { name: "Review Queue", Component: ReviewApp },
   editor: { name: "Epic/Story Editor", Component: EditorApp },
+  codegen: { name: "Code Generation", Component: CodegenApp },
   admin: { name: "Admin/Observability", Component: AdminApp },
 };
 

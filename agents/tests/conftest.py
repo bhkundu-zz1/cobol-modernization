@@ -16,6 +16,7 @@ class FakeMCPClient:
     def __init__(self) -> None:
         self.databases: dict[str, dict[str, dict[str, Any]]] = {}
         self.audit_events: list[dict[str, Any]] = []
+        self.codegen_commits: list[dict[str, Any]] = []
         self.killed = False
 
     def couchdb_write(self, database: str, doc: dict, project_id: str, created_by: str, trace_id: str) -> dict:
@@ -142,6 +143,41 @@ class FakeMCPClient:
                 {"epic_id": m.epic_id, "external_milestone_id": m.external_milestone_id, "external_milestone_url": m.external_milestone_url}
                 for m in result.epic_milestones
             ],
+        }
+
+    def codegen_commit_files(
+        self,
+        project_id: str,
+        story_id: str,
+        files: list[dict[str, str]],
+        commit_message: str,
+        requesting_agent: str,
+    ) -> dict:
+        """Records the call for assertions and performs the same
+        traversal/absolute-path rejection mcp_gateway's real
+        codegen_commit_files enforces authoritatively, so a test exercising
+        a malicious relative_path fails the same way in both places. Does
+        not make a real GitHub call — this is an in-memory recorder that
+        fabricates a plausible commit_sha/commit_url."""
+        for file_entry in files:
+            relative_path = file_entry["relative_path"]
+            normalized = relative_path.replace("\\", "/")
+            if not relative_path or normalized.startswith("/") or ".." in normalized.split("/"):
+                raise ValueError(f"relative_path {relative_path!r} rejected by fake codegen_commit_files")
+
+        call = {
+            "project_id": project_id,
+            "story_id": story_id,
+            "files": files,
+            "commit_message": commit_message,
+            "requesting_agent": requesting_agent,
+        }
+        self.codegen_commits.append(call)
+        fake_commit_sha = f"fakecommit{len(self.codegen_commits)}"
+        return {
+            "commit_sha": fake_commit_sha,
+            "commit_url": f"https://github.com/acme-org/generated-migrations/commit/{fake_commit_sha}",
+            "repo_path": story_id,
         }
 
 
